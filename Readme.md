@@ -12,4 +12,22 @@ pip3 install -r requirements.txt
 
 
 ## Usage
-TODO
+Run the python script with:
+```shell
+python3 analyze.py -i path/to/logfile_name.ulog
+```
+
+Output will be written to:
+
+- logfile_name-TODO.dat
+- logfile_name.csv
+
+
+**Attention**: At the time of writing, PX4 does not write the dumped GPS communication to the log file by default (see https://github.com/PX4/PX4-Autopilot/issues/16229).
+The only workaround is, to use a config file for the logger in `etc/logging/logger_topics.txt` on the FMU's SD card.
+
+It has to contain all topics, which should be logged, including:
+```
+gps_dump 0 0
+transponder_report 0 0
+```
