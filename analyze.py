@@ -12,6 +12,9 @@ import argparse
 import logging
 import os
 import sys
+from enum import Enum
+from dataclasses import dataclass
+import numpy
 from pyulog.core import ULog
 
 
@@ -86,6 +89,45 @@ if __name__ == "__main__":
     logger.info("gps_dump: Creating output files %s and %s",
                 gps_out_filename_to, gps_out_filename_from)
 
+    # state of ublox protocol parser
+    class UbxParserState(Enum):
+        IDLE = 1
+        START1_FOUND = 2
+        START2_FOUND = 3
+        MSG_CLASS_FOUND = 4
+        MSG_ID_FOUND = 5
+        LEN1_FOUND = 6
+        LEN2_FOUND = 7
+        READING = 20
+    ubx_parser_state = UbxParserState.IDLE
+    ubx_msg_payload_len = 0
+
+    @dataclass
+    class UbxMessage():
+        timestamp: numpy.uint64 = None
+        msg_class: numpy.uint8 = None
+        msg_id: numpy.uint8 = None
+        payload: numpy.array = None
+
+        def __repr__(self):
+            print_str = 'UbxMessage({0}, {1:#04x}-{2:#04x}:'.format(self.timestamp,
+                                                                    self.msg_class, self.msg_id)
+
+            if len(self.payload) > 30:
+                print_str += ' {0:d} bytes'.format(len(self.payload))
+            else:
+                for p in self.payload:
+                    print_str += ' {0:02x}'.format(p)
+
+            print_str += ')'
+            return print_str
+
+    ubx_current_msg = UbxMessage()
+    ubx_msg_payload_cnt = 0
+
+    ubx_messages = []  # this contains the individual ubx messages
+
+    # dump all message to binary file and disect communication
     with open(gps_out_filename_to, 'wb') as to_dev_file:
         with open(gps_out_filename_from, 'wb') as from_dev_file:
             msg_lens = gpsdump_data.data['len']
@@ -98,7 +140,47 @@ if __name__ == "__main__":
                     file_handle = from_dev_file
 
                 for k in range(msg_len):
-                    file_handle.write(gpsdump_data.data['data['+str(k)+']'][i])
+                    data_byte = gpsdump_data.data['data['+str(k)+']'][i]
+                    file_handle.write(data_byte)
+
+                    # extract ubx message
+                    if ubx_parser_state == UbxParserState.IDLE:
+                        if data_byte == 0xb5:
+                            ubx_parser_state = UbxParserState.START1_FOUND
+                    elif ubx_parser_state == UbxParserState.START1_FOUND:
+                        if data_byte == 0x62:
+                            ubx_current_msg = UbxMessage()
+                            ubx_current_msg.timestamp = gpsdump_data.data['timestamp'][i]
+                            ubx_parser_state = UbxParserState.START2_FOUND
+
+                    elif ubx_parser_state == UbxParserState.START2_FOUND:
+                        ubx_current_msg.msg_class = data_byte
+                        ubx_parser_state = UbxParserState.MSG_CLASS_FOUND
+                    elif ubx_parser_state == UbxParserState.MSG_CLASS_FOUND:
+                        ubx_current_msg.msg_id = data_byte
+                        ubx_parser_state = UbxParserState.MSG_ID_FOUND
+
+                    elif ubx_parser_state == UbxParserState.MSG_ID_FOUND:
+                        ubx_msg_payload_len = data_byte
+                        ubx_parser_state = UbxParserState.LEN1_FOUND
+                    elif ubx_parser_state == UbxParserState.LEN1_FOUND:
+                        ubx_msg_payload_len = ubx_msg_payload_len + (data_byte << 8)
+                        ubx_current_msg.payload = numpy.zeros(
+                            (ubx_msg_payload_len), dtype=numpy.uint8)
+                        ubx_parser_state = UbxParserState.LEN2_FOUND
+
+                    elif ubx_parser_state == UbxParserState.LEN2_FOUND:
+                        if ubx_msg_payload_cnt < ubx_msg_payload_len:
+                            ubx_current_msg.payload[ubx_msg_payload_cnt] = data_byte
+                            ubx_msg_payload_cnt += 1
+
+                        if ubx_msg_payload_cnt >= ubx_msg_payload_len:
+                            ubx_messages.append(ubx_current_msg)
+                            ubx_msg_payload_cnt = 0
+                            ubx_parser_state = UbxParserState.IDLE
+
+    # for msg in ubx_messages:
+    #     print(msg)  # dev only
 
     logger.info("gps_dump: Output finished")
 
@@ -111,7 +193,10 @@ if __name__ == "__main__":
 
     with open(position_out_filename, 'w') as csvfile:
         # TODO: combine all data vectors
-        data = globalpos_data
+        # utm:
+        # globalos: timestamp;lat;lon;alt;alt_ellipsoid;delta_alt;eph;epv;terrain_alt;lat_lon_reset_counter;alt_reset_counter;terrain_alt_valid;dead_reckoning
+        # gps: timestamp;time_utc_usec;lat;lon;alt;alt_ellipsoid;s_variance_m_s;c_variance_rad;eph;epv;hdop;vdop;noise_per_ms;jamming_indicator;vel_m_s;vel_n_m_s;vel_e_m_s;vel_d_m_s;cog_rad;timestamp_time_relative;heading;heading_offset;fix_type;vel_ned_valid;satellites_used
+        data = gps_data
 
         # use same field order as in the log, except for the timestamp
         data_keys = [f.field_name for f in data.field_data]

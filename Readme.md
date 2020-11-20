@@ -31,3 +31,75 @@ It has to contain all topics, which should be logged, including:
 gps_dump 0 0
 transponder_report 0 0
 ```
+
+
+## ublox Protocol Reference
+Message frame structure:
+
+- `0xB5 0x62`: sync chars
+- 1 byte message class
+    * `0x01`: NAV - Navigation Results Messages: Position, Speed, Time, Acceleration, Heading, DOP, SVs used
+    * `0x02`: RXM - Receiver Manager Messages: Satellite Status, RTC Status
+    * `0x04`: INF - Information Messages: Printf-Style Messages, with IDs such as Error, Warning, Notice
+    * `0x05`: ACK - Ack/Nak Messages: Acknowledge or Reject messages to UBX-CFG input messages
+    * `0x06`: CFG - Configuration Input Messages: Configure the receiver.
+    * `0x09`: UPD - Firmware Update Messages: Memory/Flash erase/write, Reboot, Flash identification, etc.
+    * `0x0A`: MON - Monitoring Messages: Communication Status, CPU Load, Stack Usage, Task Status
+    * `0x0B`: AIM - AssistNow Aiding Messages: Ephemeris, Almanac, other A-GPS data input
+    * `0x0D`: TIM - Timing Messages: Time Pulse Output, Time Mark Results
+    * `0x10`: ESF - External Sensor Fusion Messages: External Sensor Measurements and Status Information
+    * `0x13`: MGA - Multiple GNSS Assistance Messages: Assistance data for various GNSS
+    * `0x21`: LOG - Logging Messages: Log creation, deletion, info and retrieval
+    * `0x27`: SEC - Security Feature Messages
+    * `0x28`: HNR - High Rate Navigation Results Messages: High rate time, position, speed, heading
+- 1 byte message ID (excerpt)
+    * MON:
+        + `0x0A 0x32`: MON-BATCH - Polled - Data batching buffer status
+        + `0x0A 0x28`: MON-GNSS - Polled - Information message major GNSS...
+        + `0x0A 0x0B`: MON-HW2 - Periodic/Polled - Extended hardware status
+        + `0x0A 0x09`: **MON-HW** - Periodic/polled - Hardware status
+        + `0x0A 0x02`: MON-IO - Periodic/Polled - I/O system status
+        + `0x0A 0x06`: MON-MSGPP - Periodic/Polled - Message parse and process status
+        + `0x0A 0x27`: MON-PATCH - Poll Request - Poll request for installed patches
+        + `0x0A 0x27`: MON-PATCH - Polled - Installed patches
+        + `0x0A 0x07`: MON-RXBUF - Periodic/Polled - Receiver buffer status
+        + `0x0A 0x21`: MON-RXR - Output - Receiver status information
+        + `0x0A 0x2E`: MON-SMGR - Periodic/Polled - Synchronization manager status
+        + `0x0A 0x08`: MON-TXBUF - Periodic/Polled - Transmitter buffer status
+        + `0x0A 0x04`: MON-VER - Poll Request/ Polled - Poll receiver and software version
+    * NAV:
+        + `0x01 0x60`: NAV-AOPSTATUS - Periodic/Polled - AssistNow Autonomous status
+        + `0x01 0x05`: NAV-ATT - Periodic/Polled - Attitude solution
+        + `0x01 0x22`: NAV-CLOCK - Periodic/Polled - Clock solution
+        + `0x01 0x31`: NAV-DGPS - Periodic/Polled - DGPS data used for NAV
+        + `0x01 0x04`: **NAV-DOP** - Periodic/Polled - Dilution of precision
+        + `0x01 0x61`: NAV-EOE - Periodic - End of epoch
+        + `0x01 0x39`: NAV-GEOFENCE - Periodic/Polled - Geofencing status
+        + `0x01 0x13`: NAV-HPPOSECEF - Periodic/Polled - High precision position solution in ECEF
+        + `0x01 0x14`: NAV-HPPOSLLH - Periodic/Polled - High precision geodetic position solution
+        + `0x01 0x28`: NAV-NMI - Periodic/Polled - Navigation message cross-check...
+        + `0x01 0x09`: NAV-ODO - Periodic/Polled - Odometer solution
+        + `0x01 0x34`: NAV-ORB - Periodic/Polled - GNSS orbit database info
+        + `0x01 0x01`: NAV-POSECEF - Periodic/Polled - Position solution in ECEF
+        + `0x01 0x02`: NAV-POSLLH - Periodic/Polled - Geodetic position solution
+        + `0x01 0x07`: **NAV-PVT** - Periodic/Polled - Navigation position velocity time solution
+        + `0x01 0x3C`: NAV-RELPOSNED - Periodic/Polled - Relative positioning information in...
+        + `0x01 0x10`: NAV-RESETODO - Command - Reset odometer
+        + `0x01 0x35`: NAV-SAT - Periodic/Polled Satellite information
+        + `0x01 0x32`: NAV-SBAS - Periodic/Polled - SBAS status data
+        + `0x01 0x42`: NAV-SLAS - Periodic/Polled - QZSS L1S SLAS status data
+        + `0x01 0x06`: NAV-SOL - Periodic/Polled - Navigation solution information
+        + `0x01 0x03`: NAV-STATUS - Periodic/Polled - Receiver navigation status
+        + `0x01 0x30`: NAV-SVINFO - Periodic/Polled - Space vehicle information
+        + `0x01 0x3B`: NAV-SVIN - Periodic/Polled - Survey-in data
+        + `0x01 0x24`: NAV-TIMEBDS - Periodic/Polled - BeiDou time solution
+        + `0x01 0x25`: NAV-TIMEGAL - Periodic/Polled - Galileo time solution
+        + `0x01 0x23`: NAV-TIMEGLO - Periodic/Polled - GLONASS time solution
+        + `0x01 0x20`: NAV-TIMEGPS - Periodic/Polled - GPS time solution
+        + `0x01 0x26`: NAV-TIMELS - Periodic/Polled - Leap second event information
+        + `0x01 0x21`: NAV-TIMEUTC - Periodic/Polled - UTC time solution
+        + `0x01 0x11`: NAV-VELECEF - Periodic/Polled - Velocity solution in ECEF
+        + `0x01 0x12`: NAV-VELNED - Periodic/Polled - Velocity solution in NED
+- 2 byte length field
+- payload
+- 2 byte checksum
