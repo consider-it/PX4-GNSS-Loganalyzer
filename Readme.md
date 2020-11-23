@@ -85,7 +85,7 @@ Message frame structure:
         + `0x01 0x07`: **NAV-PVT** - Periodic/Polled - Navigation position velocity time solution
         + `0x01 0x3C`: NAV-RELPOSNED - Periodic/Polled - Relative positioning information in...
         + `0x01 0x10`: NAV-RESETODO - Command - Reset odometer
-        + `0x01 0x35`: NAV-SAT - Periodic/Polled Satellite information
+        + `0x01 0x35`: _NAV-SAT_ - Periodic/Polled Satellite information
         + `0x01 0x32`: NAV-SBAS - Periodic/Polled - SBAS status data
         + `0x01 0x42`: NAV-SLAS - Periodic/Polled - QZSS L1S SLAS status data
         + `0x01 0x06`: NAV-SOL - Periodic/Polled - Navigation solution information
@@ -103,3 +103,15 @@ Message frame structure:
 - 2 byte length field
 - payload
 - 2 byte checksum
+
+
+UBX-NAV-SAT is needed to get the IDs of the connected satellites.
+But PX4 might be capable of publishing this information by default.
+The GPS driver as an option to enabled sat info, which will publish to `satellite_info` uORB and `GPS_STATUS` MAVLink topics.
+
+The satellite numbering is:
+
+- GPS G1-G32: UBX svId 1-32
+- Galileo E1-E63: UBX svId 211-246
+- SBAS S120-S158: UBX svId 120-158
+

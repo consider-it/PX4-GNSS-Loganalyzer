@@ -12,6 +12,7 @@ import argparse
 import logging
 import os
 import sys
+import struct
 from enum import Enum
 from dataclasses import dataclass
 import numpy
@@ -27,6 +28,230 @@ def ulog_data_list_search(data_list: list, topic_name: str) -> ULog.Data:
         return None
 
     return selection[0]
+
+
+@dataclass
+class UbxMsg():
+    """
+    Ublox Message Container
+
+    Attributes:
+    - timestamp: from uLog message
+    - msg_class: ublox message class
+    - msg_id: ublox message id (inside class)
+    - raw_payload: array of payload bytes (without checksum)
+    - payload: parsed ublox message
+    """
+    timestamp: numpy.uint64 = None
+    msg_class: numpy.uint8 = None
+    msg_id: numpy.uint8 = None
+    raw_payload: numpy.array = None
+
+    payload = None
+
+    def __repr__(self):
+        print_str = 'UbxMsg({0}, {1:#04x}-{2:#04x}:'.format(self.timestamp,
+                                                            self.msg_class, self.msg_id)
+
+        if len(self.raw_payload) > 30:
+            print_str += ' {0:d} bytes'.format(len(self.raw_payload))
+        else:
+            for p in self.raw_payload:
+                print_str += ' {0:02x}'.format(p)
+
+        print_str += ')'
+        return print_str
+
+
+@dataclass
+class UbxNavDop():
+    """
+    u-blox Protocol UBX-NAV-DOP Message
+
+    - time_of_week in ms
+    - Dilution of Precision (Geometric / Position / Time / Vertical / Horizontal / Northing / Easting)
+        DOP is Dimensionless / scaled by factor 100
+    """
+
+    def __init__(self, payload):
+        try:
+            self.iTOW, self.gDOP, self.pDOP, self.tDOP, self.vDOP, self.hDOP, self.nDOP, self.eDOP = struct.unpack(
+                '=L7H', payload)
+
+            self.gDOP = self.gDOP / 100
+            self.pDOP = self.pDOP / 100
+            self.tDOP = self.tDOP / 100
+            self.vDOP = self.vDOP / 100
+            self.hDOP = self.hDOP / 100
+            self.nDOP = self.nDOP / 100
+            self.eDOP = self.eDOP / 100
+
+        except struct.error:
+            logger.error("UbxNavDop parse error %s, %s", sys.exc_info()[0], sys.exc_info()[1])
+
+    def __repr__(self):
+        format_str = 'UbxNavDop(iTOW={0}, gDOP={1}, pDOP={2}, tDOP={3}, vDOP={4}, hDOP={5}, nDOP={6}, eDOP={7})'
+
+        return format_str.format(
+            self.iTOW, self.gDOP, self.pDOP, self.tDOP, self.vDOP, self.hDOP, self.nDOP, self.eDOP)
+
+
+@dataclass
+class UbxNavPvt():
+    """
+    u-blox protocol UBX-NAV-PVT
+
+    - Time of week in ms
+    - Year(UTC), Month (UTC 1..12), Day (1..31)
+    - Hour (0..23), Minute (0..59), Seconds (0..60)
+    - Validity Flags
+    - Time Accuracy Estimate in ns
+    - Fraction of second (-1e9..1e9)
+    - GNSS Fix Type / Fix Status Flags / Other Flags
+    - Number of Sattelites
+    - Longitude in deg (1e-7), Latitude in deg (1e-7), Height Ellipsoid in mm, Height Sea Level in mm
+    - Horizontal Accuracy in mm / Vertical Accuracy in mm
+    - North Velocity mm s^-1 / East Velocity mm s^-1 / Down Velocity mm s^-1
+    - Ground speed in mm s^-1
+    - Heading of Motion in deg (1e-5)
+    - Speed accuracy mm s^-1, Heading accuracy estimate deg (1e-5)
+    - Position DOP (0.01)
+    - Heading of Vehicle in deg (1e-5), Magnetic Declination in deg (1e-2), Magnetic Declination Accuracy in deg (1e-2)
+    """
+
+    def __init__(self, payload):
+        try:
+            self.iTOW, self.year, self.month, self.day, self.hour, self.minute, self.second,\
+                self.valid, self.tAcc, self.nano, self.fixType, self.flags, self.flags2,\
+                self.numSV, self.lon, self.lat, self.height, self.hMSL, self.hAcc, self.vAcc,\
+                self.velN, self.velE, self.velD, self.gSpeed, self.headMot,\
+                self.sAcc, self.headAcc, self.pDOP, _, _, _, _, _, _, self.headVeh, self.magDec,\
+                self.magAcc = struct.unpack('=LH5BBLlB2BB4l2L5lLLH6BlhH', payload)
+
+            self.lon = self.lon / 1e7
+            self.lat = self.lat / 1e7
+            self.height = self.height / 1000
+            self.hMSL = self.hMSL / 1000
+            self.hAcc = self.hAcc / 1000
+            self.vAcc = self.vAcc / 1000
+            self.velN = self.velN / 1000
+            self.velE = self.velE / 1000
+            self.velD = self.velD / 1000
+            self.gSpeed = self.gSpeed / 1000
+            self.headMot = self.headMot / 1e5
+            self.sAcc = self.sAcc / 1000
+            self.headAcc = self.headAcc / 1e5
+            self.pDOP = self.pDOP / 100
+            self.headVeh = self.headVeh / 1e5
+            self.magDec = self.magDec / 1e2
+            self.magAcc = self.magAcc / 1e2
+
+        except struct.error:
+            logger.error("UbxNavPvt parse error %s, %s", sys.exc_info()[0], sys.exc_info()[1])
+
+    def __repr__(self):
+        format_str = 'UbxNavPvt(iTOW={0}, {1}-{2}-{3}T{4}-{5}-{6}, fixType={7}, numSV={8}' + \
+            ', lon={9}, lat={10}, height={11}, hMSL={12}, hAcc={13}, vAcc={14}' + \
+            ', velN={15}, velE={16}, velD={17}, gSpeed={18}, headMot={19}, sAcc={20}, headAcc={21}' + \
+            ', pDOP={22}, headVeh={23}, magDec={24}, magAcc={25})'
+
+        return format_str.format(self.iTOW, self.year, self.month, self.day, self.hour, self.minute, self.second, self.fixType, self.numSV,
+                                 self.lon, self.lat, self.height, self.hMSL, self.hAcc,
+                                 self.vAcc, self.velN, self.velE, self.velD, self.gSpeed, self.headMot, self.sAcc, self.headAcc,
+                                 self.pDOP, self.headVeh, self.magDec, self.magAcc)
+
+
+@dataclass
+class UbxNavSat():
+    """
+    u-blox protocol UBX-NAV-SAT
+
+    - Time of week in ms
+    - Message version (0x01 for this version)
+    - Number of satellites
+    - N Blocks with:
+        - GNSS identifier (see Satellite Numbering) for assignment
+        - Satellite identifier (see Satellite Numbering) for assignment
+        - Carrier to noise ratio (signal strength)
+        - Elevation (range: +/-90), unknown if out of range
+        - Azimuth (range 0-360), unknown if elevation is out of range
+        - Pseudorange residual in metres
+        - Bitmask (see graphic below)
+    """
+
+    @dataclass
+    class SatInfo():
+        """Repeated block in UBX-NAV-SAT message"""
+        gnssId: numpy.uint8 = None
+        svId: numpy.uint8 = None
+        cno: numpy.uint8 = None
+        elev: numpy.int8 = None
+        azim: numpy.int16 = None
+        prRes: numpy.int16 = None
+        flags: numpy.uint32 = None
+
+    def __init__(self, payload):
+        try:
+            payload_hdr = payload[0:8]
+            self.iTOW, self.version, self.numSvs, _, _ = struct.unpack('=LBB2B', payload_hdr)
+
+            self.satInfos = []
+            for n in range(self.numSvs):
+                playload_block = payload[(8+12*n):(21+12*n)]
+                print("sliced block from %i to %i", 8+12*n, 21+12*n)  # TODO: dev only
+
+                gnssId, svId, cno, elev, azim, prRes, flags = struct.unpack('=BBBbhhL', playload_block)
+                prRes = prRes / 10
+
+                self.satInfos.append(self.SatInfo(gnssId, svId, cno, elev, azim, prRes, flags))
+
+        except struct.error:
+            logger.error("UbxNavPvt parse error %s, %s", sys.exc_info()[0], sys.exc_info()[1])
+
+    def __repr__(self):
+        repr_str = 'UbxNavSat(iTOW={0}, version={1}, numSvs={2}'.format(self.iTOW, self.version, self.numSvs)
+
+        for elem in self.satInfos:
+            format_str = "\tgnssId={0}, svId={1}, cno={2}, elev={3}, azim={4}, prRes={5}\n"
+            format_str.format(elem.gnssId, elem.svId, elem.cno, elem.elev, elem.azim, elem.prRes)
+
+        repr_str += "\n)"
+        return repr_str
+
+
+@dataclass
+class UbxMonHw():
+    """
+    u-blox Protocol UBX-MON-HW Message
+
+    - Mask of pins set as peripheral/PIO
+    - Mask of pins set as bank A/B
+    - Mask of pins set as input/output
+    - Mask of pins value low/high
+    - Noise level as measured by the GPS core
+    - AGC monitor(counts SIGHI xor SIGLO, range 0 to 8191)
+    - Status of the antenna supervisor state machine(0=INIT, 1=DONTKNOW, 2=OK, 3=SHORT, 4=OPEN)
+    - Current power status of antenna(0=OFF, 1=ON, 2=DONTKNOW)
+    - Flags(see graphic below)
+    - Reserved 17 Bytes
+    - Mask of pins that are used by the virtual pin manager
+    - Array of pin mappings for each of the 17 physical pins
+    - CW jamming indicator, scaled(0=no CW jamming, 255=strong CW jamming)
+    - Reserved 2 Bytes
+    - Mask of pins value using the PIO Irq
+    - Mask of pins value using the PIO pull high resistor
+    - Mask of pins value using the PIO pull low resistor
+    """
+
+    def __init__(self, payload):
+        try:
+            self.pinSel, self.pinBank, self.pinDir, self.pinVal, self.noisePerMS, self.agcCnt, \
+                self.aStatus, self.aPower, self.flags, _, _, _, _, _, _, _, _, _, _, _, _, _, _,\
+                _, _, _, self.usedMask, self.VP, self.jamInd, _, _, self.pinIrq, self.pullH,\
+                self.pullL = struct.unpack('=4L2H2BBBL17BB2B3L', payload)
+
+        except struct.error:
+            logger.error("UbxMonHw parse error %s, %s", sys.exc_info()[0], sys.exc_info()[1])
 
 
 if __name__ == "__main__":
@@ -91,6 +316,7 @@ if __name__ == "__main__":
 
     # state of ublox protocol parser
     class UbxParserState(Enum):
+        """ublox Protocol Parser State Machine States"""
         IDLE = 1
         START1_FOUND = 2
         START2_FOUND = 3
@@ -102,27 +328,7 @@ if __name__ == "__main__":
     ubx_parser_state = UbxParserState.IDLE
     ubx_msg_payload_len = 0
 
-    @dataclass
-    class UbxMessage():
-        timestamp: numpy.uint64 = None
-        msg_class: numpy.uint8 = None
-        msg_id: numpy.uint8 = None
-        payload: numpy.array = None
-
-        def __repr__(self):
-            print_str = 'UbxMessage({0}, {1:#04x}-{2:#04x}:'.format(self.timestamp,
-                                                                    self.msg_class, self.msg_id)
-
-            if len(self.payload) > 30:
-                print_str += ' {0:d} bytes'.format(len(self.payload))
-            else:
-                for p in self.payload:
-                    print_str += ' {0:02x}'.format(p)
-
-            print_str += ')'
-            return print_str
-
-    ubx_current_msg = UbxMessage()
+    ubx_current_msg = UbxMsg()
     ubx_msg_payload_cnt = 0
 
     ubx_messages = []  # this contains the individual ubx messages
@@ -149,7 +355,7 @@ if __name__ == "__main__":
                             ubx_parser_state = UbxParserState.START1_FOUND
                     elif ubx_parser_state == UbxParserState.START1_FOUND:
                         if data_byte == 0x62:
-                            ubx_current_msg = UbxMessage()
+                            ubx_current_msg = UbxMsg()
                             ubx_current_msg.timestamp = gpsdump_data.data['timestamp'][i]
                             ubx_parser_state = UbxParserState.START2_FOUND
 
@@ -165,13 +371,13 @@ if __name__ == "__main__":
                         ubx_parser_state = UbxParserState.LEN1_FOUND
                     elif ubx_parser_state == UbxParserState.LEN1_FOUND:
                         ubx_msg_payload_len = ubx_msg_payload_len + (data_byte << 8)
-                        ubx_current_msg.payload = numpy.zeros(
+                        ubx_current_msg.raw_payload = numpy.zeros(
                             (ubx_msg_payload_len), dtype=numpy.uint8)
                         ubx_parser_state = UbxParserState.LEN2_FOUND
 
                     elif ubx_parser_state == UbxParserState.LEN2_FOUND:
                         if ubx_msg_payload_cnt < ubx_msg_payload_len:
-                            ubx_current_msg.payload[ubx_msg_payload_cnt] = data_byte
+                            ubx_current_msg.raw_payload[ubx_msg_payload_cnt] = data_byte
                             ubx_msg_payload_cnt += 1
 
                         if ubx_msg_payload_cnt >= ubx_msg_payload_len:
@@ -179,10 +385,35 @@ if __name__ == "__main__":
                             ubx_msg_payload_cnt = 0
                             ubx_parser_state = UbxParserState.IDLE
 
-    # for msg in ubx_messages:
-    #     print(msg)  # dev only
-
     logger.info("gps_dump: Output finished")
+
+    # PARSE UBLOX PROTOCOL
+    for msg in ubx_messages:
+
+        if msg.msg_class == 0x01:  # NAV
+            if msg.msg_id == 0x04:  # DOP
+                msg.payload = UbxNavDop(msg.raw_payload)
+            elif msg.msg_id == 0x07:  # PVT
+                msg.payload = UbxNavPvt(msg.raw_payload)
+            elif msg.msg_id == 0x35:  # SAT
+                msg.payload = UbxNavSat(msg.raw_payload)
+
+            else:
+                logger.warning("U-Blox: NAV message ID 0x%02x not implemented", msg.msg_id)
+
+        elif msg.msg_class == 0x0A:  # MON
+            if msg.msg_id == 0x09:  # HW
+                msg.payload = UbxMonHw(msg.raw_payload)
+
+            else:
+                logger.warning("U-Blox: MON message ID 0x%02x not implemented", msg.msg_id)
+
+        else:
+            logger.warning("U-Blox: Message Class 0x%02x, ID 0x%02x not implemented", msg.msg_class, msg.msg_id)
+
+    # for msg in ubx_messages:
+    #     print(msg.payload)
+    # TODO!!!: write parsed data to CSV
 
     # GET VEHICLE POSITION DATA AND CONVERT/ ANALYZE IT
     CSV_DELIMITER = ';'
