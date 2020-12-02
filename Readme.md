@@ -34,6 +34,33 @@ transponder_report 0 0
 
 
 ## ublox Protocol Reference
+UBX-NAV-SAT is needed to get the IDs of the connected satellites.
+But PX4 might be capable of publishing this information by default.
+The GPS driver as an option to enabled sat info, which will publish to `satellite_info` uORB and `GPS_STATUS` MAVLink topics.
+
+### Satellite Numbering
+
+- GPS G1-G32: UBX svId 1-32
+- Galileo E1-E63: UBX svId 211-246
+- SBAS S120-S158: UBX svId 120-158
+
+### Data Types
+Mapping of ublox data types to python struct format characters:
+
+- U1: Unsigned Char     --> B
+- I1: Signed Char       --> b
+- X1: Bitfield          --> B
+- U2: Unsigned Short    --> H
+- I2: Signed Short      --> h
+- X2: Bitfield          --> H
+- U4: Unsigned Long     --> L
+- I4: Signed Long       --> l
+- X4: Bitfield          --> L
+- R4: IEEE 754 Single Precision --> f
+- R8: IEEE 754 Double Precision --> d
+- CH: ASCII Char        --> c
+
+### Messages
 Message frame structure:
 
 - `0xB5 0x62`: sync chars
@@ -105,13 +132,5 @@ Message frame structure:
 - 2 byte checksum
 
 
-UBX-NAV-SAT is needed to get the IDs of the connected satellites.
-But PX4 might be capable of publishing this information by default.
-The GPS driver as an option to enabled sat info, which will publish to `satellite_info` uORB and `GPS_STATUS` MAVLink topics.
 
-The satellite numbering is:
-
-- GPS G1-G32: UBX svId 1-32
-- Galileo E1-E63: UBX svId 211-246
-- SBAS S120-S158: UBX svId 120-158
 

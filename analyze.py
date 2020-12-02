@@ -75,8 +75,8 @@ class UbxNavDop():
 
     def __init__(self, payload):
         try:
-            self.iTOW, self.gDOP, self.pDOP, self.tDOP, self.vDOP, self.hDOP, self.nDOP, self.eDOP = struct.unpack(
-                '=L7H', payload)
+            self.iTOW, self.gDOP, self.pDOP, self.tDOP, self.vDOP, self.hDOP, self.nDOP, self.eDOP, self.crc = struct.unpack(
+                '=L7HH', payload)
 
             self.gDOP = self.gDOP / 100
             self.pDOP = self.pDOP / 100
@@ -126,7 +126,7 @@ class UbxNavPvt():
                 self.numSV, self.lon, self.lat, self.height, self.hMSL, self.hAcc, self.vAcc,\
                 self.velN, self.velE, self.velD, self.gSpeed, self.headMot,\
                 self.sAcc, self.headAcc, self.pDOP, _, _, _, _, _, _, self.headVeh, self.magDec,\
-                self.magAcc = struct.unpack('=LH5BBLlB2BB4l2L5lLLH6BlhH', payload)
+                self.magAcc, self.crc = struct.unpack('=LH5BBLlB2BB4l2L5lLLH6BlhHH', payload)
 
             self.lon = self.lon / 1e7
             self.lat = self.lat / 1e7
@@ -198,7 +198,6 @@ class UbxNavSat():
             self.satInfos = []
             for n in range(self.numSvs):
                 playload_block = payload[(8+12*n):(21+12*n)]
-                print("sliced block from %i to %i", 8+12*n, 21+12*n)  # TODO: dev only
 
                 gnssId, svId, cno, elev, azim, prRes, flags = struct.unpack('=BBBbhhL', playload_block)
                 prRes = prRes / 10
@@ -248,7 +247,7 @@ class UbxMonHw():
             self.pinSel, self.pinBank, self.pinDir, self.pinVal, self.noisePerMS, self.agcCnt, \
                 self.aStatus, self.aPower, self.flags, _, _, _, _, _, _, _, _, _, _, _, _, _, _,\
                 _, _, _, self.usedMask, self.VP, self.jamInd, _, _, self.pinIrq, self.pullH,\
-                self.pullL = struct.unpack('=4L2H2BBBL17BB2B3L', payload)
+                self.pullL, self.crc = struct.unpack('=4L2H2BBBL17BB2B3LH', payload)
 
         except struct.error:
             logger.error("UbxMonHw parse error %s, %s", sys.exc_info()[0], sys.exc_info()[1])
@@ -317,15 +316,15 @@ if __name__ == "__main__":
     # state of ublox protocol parser
     class UbxParserState(Enum):
         """ublox Protocol Parser State Machine States"""
+        INIT = 0
         IDLE = 1
-        START1_FOUND = 2
-        START2_FOUND = 3
-        MSG_CLASS_FOUND = 4
-        MSG_ID_FOUND = 5
-        LEN1_FOUND = 6
-        LEN2_FOUND = 7
+        EXP_START2 = 2
+        EXP_CLASS = 3
+        EXP_ID = 4
+        EXP_LEN1 = 5
+        EXP_LEN2 = 6
         READING = 20
-    ubx_parser_state = UbxParserState.IDLE
+    ubx_parser_state = UbxParserState.INIT
     ubx_msg_payload_len = 0
 
     ubx_current_msg = UbxMsg()
@@ -349,33 +348,44 @@ if __name__ == "__main__":
                     data_byte = gpsdump_data.data['data['+str(k)+']'][i]
                     file_handle.write(data_byte)
 
+                    # skip messages sent to the ublox receiver
+                    if (file_handle == to_dev_file):
+                        continue
+                    # TODO: parse RX and TX data streams separately
+
                     # extract ubx message
-                    if ubx_parser_state == UbxParserState.IDLE:
+                    if ubx_parser_state == UbxParserState.INIT:
                         if data_byte == 0xb5:
-                            ubx_parser_state = UbxParserState.START1_FOUND
-                    elif ubx_parser_state == UbxParserState.START1_FOUND:
+                            ubx_parser_state = UbxParserState.EXP_START2
+                    elif ubx_parser_state == UbxParserState.IDLE:
+                        if data_byte == 0xb5:
+                            ubx_parser_state = UbxParserState.EXP_START2
+                        else:
+                            logger.warning("UBX Parser: Unexpected Byte 0x%02x (Prev.: %r)", data_byte, ubx_current_msg)
+                    elif ubx_parser_state == UbxParserState.EXP_START2:
                         if data_byte == 0x62:
                             ubx_current_msg = UbxMsg()
                             ubx_current_msg.timestamp = gpsdump_data.data['timestamp'][i]
-                            ubx_parser_state = UbxParserState.START2_FOUND
+                            ubx_parser_state = UbxParserState.EXP_CLASS
 
-                    elif ubx_parser_state == UbxParserState.START2_FOUND:
+                    elif ubx_parser_state == UbxParserState.EXP_CLASS:
                         ubx_current_msg.msg_class = data_byte
-                        ubx_parser_state = UbxParserState.MSG_CLASS_FOUND
-                    elif ubx_parser_state == UbxParserState.MSG_CLASS_FOUND:
+                        ubx_parser_state = UbxParserState.EXP_ID
+                    elif ubx_parser_state == UbxParserState.EXP_ID:
                         ubx_current_msg.msg_id = data_byte
-                        ubx_parser_state = UbxParserState.MSG_ID_FOUND
+                        ubx_parser_state = UbxParserState.EXP_LEN1
 
-                    elif ubx_parser_state == UbxParserState.MSG_ID_FOUND:
+                    elif ubx_parser_state == UbxParserState.EXP_LEN1:
                         ubx_msg_payload_len = data_byte
-                        ubx_parser_state = UbxParserState.LEN1_FOUND
-                    elif ubx_parser_state == UbxParserState.LEN1_FOUND:
+                        ubx_parser_state = UbxParserState.EXP_LEN2
+                    elif ubx_parser_state == UbxParserState.EXP_LEN2:
                         ubx_msg_payload_len = ubx_msg_payload_len + (data_byte << 8)
+                        ubx_msg_payload_len += 2  # add CRC
                         ubx_current_msg.raw_payload = numpy.zeros(
                             (ubx_msg_payload_len), dtype=numpy.uint8)
-                        ubx_parser_state = UbxParserState.LEN2_FOUND
+                        ubx_parser_state = UbxParserState.READING
 
-                    elif ubx_parser_state == UbxParserState.LEN2_FOUND:
+                    elif ubx_parser_state == UbxParserState.READING:
                         if ubx_msg_payload_cnt < ubx_msg_payload_len:
                             ubx_current_msg.raw_payload[ubx_msg_payload_cnt] = data_byte
                             ubx_msg_payload_cnt += 1
@@ -407,6 +417,9 @@ if __name__ == "__main__":
 
             else:
                 logger.warning("U-Blox: MON message ID 0x%02x not implemented", msg.msg_id)
+
+        elif msg.msg_class == 0x05 and msg.msg_id == 0x01:  # ACK-ACK
+            pass  # ignore for now
 
         else:
             logger.warning("U-Blox: Message Class 0x%02x, ID 0x%02x not implemented", msg.msg_class, msg.msg_id)
