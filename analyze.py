@@ -13,6 +13,7 @@ import logging
 import os
 import sys
 import struct
+import csv
 from enum import Enum
 from dataclasses import dataclass
 import numpy
@@ -28,6 +29,13 @@ def ulog_data_list_search(data_list: list, topic_name: str) -> ULog.Data:
         return None
 
     return selection[0]
+
+
+def localize_float(value):
+    """Option to use German float format to make excel happy"""
+    return value
+    # ret_str = "{0}".format(value)
+    # return ret_str.replace('.', ',')
 
 
 @dataclass
@@ -176,7 +184,7 @@ class UbxNavSat():
         - Elevation (range: +/-90), unknown if out of range
         - Azimuth (range 0-360), unknown if elevation is out of range
         - Pseudorange residual in metres
-        - Bitmask (see graphic below)
+        - Bitmask (see graphic in protocol docs)
     """
 
     @dataclass
@@ -197,7 +205,7 @@ class UbxNavSat():
 
             self.satInfos = []
             for n in range(self.numSvs):
-                playload_block = payload[(8+12*n):(21+12*n)]
+                playload_block = payload[(8+12*n):(20+12*n)]
 
                 gnssId, svId, cno, elev, azim, prRes, flags = struct.unpack('=BBBbhhL', playload_block)
                 prRes = prRes / 10
@@ -205,14 +213,72 @@ class UbxNavSat():
                 self.satInfos.append(self.SatInfo(gnssId, svId, cno, elev, azim, prRes, flags))
 
         except struct.error:
-            logger.error("UbxNavPvt parse error %s, %s", sys.exc_info()[0], sys.exc_info()[1])
+            logger.error("UbxNavSat parse error %s, %s", sys.exc_info()[0], sys.exc_info()[1])
 
     def __repr__(self):
         repr_str = 'UbxNavSat(iTOW={0}, version={1}, numSvs={2}'.format(self.iTOW, self.version, self.numSvs)
 
         for elem in self.satInfos:
             format_str = "\tgnssId={0}, svId={1}, cno={2}, elev={3}, azim={4}, prRes={5}\n"
-            format_str.format(elem.gnssId, elem.svId, elem.cno, elem.elev, elem.azim, elem.prRes)
+            repr_str += format_str.format(elem.gnssId, elem.svId, elem.cno, elem.elev, elem.azim, elem.prRes)
+
+        repr_str += "\n)"
+        return repr_str
+
+
+@dataclass
+class UbxNavSvinfo():
+    """
+    u-blox protocol UBX-NAV-SVINFO
+
+    - Time of week in ms
+    - Number of channels
+    - N Blocks with:
+        - Channel number, 255 for SVs not assigned to a channel
+        - Satellite identifier (see Satellite Numbering) for assignment
+        - Flags Bitmask (see graphic in protocol docs)
+        - Quality Bitfield (see graphic in protocol docs)
+        - Carrier to noise ratio (signal strength)
+        - Elevation (range: +/-90), unknown if out of range
+        - Azimuth (range 0-360), unknown if elevation is out of range
+        - Pseudorange residual in metres
+    """
+
+    @dataclass
+    class SvInfo():
+        """Repeated block in UBX-NAV-SVINFO message"""
+        chn: numpy.uint8 = None
+        svId: numpy.uint8 = None
+        flags: numpy.uint8 = None
+        quality: numpy.uint8 = None
+        cno: numpy.uint8 = None
+        elev: numpy.int8 = None
+        azim: numpy.int16 = None
+        prRes: numpy.int16 = None
+
+    def __init__(self, payload):
+        try:
+            payload_hdr = payload[0:8]
+            self.iTOW, self.numCh, _, _, _ = struct.unpack('=LBB2B', payload_hdr)
+
+            self.satInfos = []
+            for n in range(self.numCh):
+                playload_block = payload[(8+12*n):(20+12*n)]
+
+                chn, svId, flags, quality, cno, elev, azim, prRes = struct.unpack('=BBBBBbhl', playload_block)
+                prRes = prRes / 100
+
+                self.satInfos.append(self.SvInfo(chn, svId, flags, quality, cno, elev, azim, prRes))
+
+        except struct.error:
+            logger.error("UbxNavSvinfo parse error %s, %s", sys.exc_info()[0], sys.exc_info()[1])
+
+    def __repr__(self):
+        repr_str = 'UbxNavSvinfo(iTOW={0}, numCh={1}'.format(self.iTOW, self.numCh)
+
+        for elem in self.satInfos:
+            format_str = "\tchn={0}, svId={1}, cno={2}, elev={3}, azim={4}, prRes={5}\n"
+            repr_str += format_str.format(elem.chn, elem.svId, elem.cno, elem.elev, elem.azim, elem.prRes)
 
         repr_str += "\n)"
         return repr_str
@@ -282,11 +348,12 @@ if __name__ == "__main__":
 
     gps_out_filename_to = output_file_prefix+'_to_device.dat'
     gps_out_filename_from = output_file_prefix+'_from_device.dat'
+    ubx_out_filename = output_file_prefix+'-ubx.csv'
     position_out_filename = output_file_prefix+'.csv'
 
     # OPEN AND PARSE LOG FILE
     msg_filter = ['gps_dump', 'transponder_report',
-                  'vehicle_global_position', 'vehicle_gps_position']
+                  'vehicle_global_position', 'vehicle_gps_position', 'satellite_info']
 
     ulog = ULog(args.input_filename, msg_filter, False)
     data = ulog.data_list
@@ -349,7 +416,7 @@ if __name__ == "__main__":
                     file_handle.write(data_byte)
 
                     # skip messages sent to the ublox receiver
-                    if (file_handle == to_dev_file):
+                    if file_handle == to_dev_file:
                         continue
                     # TODO: parse RX and TX data streams separately
 
@@ -407,6 +474,8 @@ if __name__ == "__main__":
                 msg.payload = UbxNavPvt(msg.raw_payload)
             elif msg.msg_id == 0x35:  # SAT
                 msg.payload = UbxNavSat(msg.raw_payload)
+            elif msg.msg_id == 0x30:  # SVINFO
+                msg.payload = UbxNavSvinfo(msg.raw_payload)
 
             else:
                 logger.warning("U-Blox: NAV message ID 0x%02x not implemented", msg.msg_id)
@@ -424,15 +493,93 @@ if __name__ == "__main__":
         else:
             logger.warning("U-Blox: Message Class 0x%02x, ID 0x%02x not implemented", msg.msg_class, msg.msg_id)
 
-    # for msg in ubx_messages:
-    #     print(msg.payload)
-    # TODO!!!: write parsed data to CSV
+    # WRITE SATELLITE INFO TO CSV
+    with open(ubx_out_filename, 'w', newline='') as csvfile:
+        csv_fields = ['iTOW', 'fixType', 'lon', 'lat', 'height', 'hMSL', 'hAcc', 'vAcc']
+        csv_fields.append('numSvs')
+        for n in range(30):
+            # csv_fields.append('svId[%i]' % n)
+            csv_fields.append('sat[%i]' % n)
+
+        ubxwriter = csv.DictWriter(csvfile, fieldnames=csv_fields, dialect=csv.excel, delimiter=';')
+        ubxwriter.writeheader()
+
+        csv_entry = dict()
+        for msg in ubx_messages:
+            # convert to CSV fields
+            csv_entry_svinfo = dict()
+            csv_entry_pvt = dict()
+            if isinstance(msg.payload, UbxNavSvinfo):
+                csv_entry_svinfo['iTOW'] = msg.payload.iTOW
+                csv_entry_svinfo['numSvs'] = msg.payload.numCh
+                for idx, sv in enumerate(msg.payload.satInfos):
+                    # csv_entry_svinfo['svId[%i]' % idx] = sv.svId
+                    if 1 <= sv.svId <= 32:  # GPS
+                        csv_entry_svinfo['sat[%i]' % idx] = "G{0}".format(sv.svId)
+                    elif 120 <= sv.svId <= 158:  # SBAS
+                        csv_entry_svinfo['sat[%i]' % idx] = "S{0}".format(sv.svId)
+                    elif 211 <= sv.svId <= 246:  # Galileo
+                        csv_entry_svinfo['sat[%i]' % idx] = "E{0}".format(sv.svId-210)
+                    elif 159 <= sv.svId <= 163:  # BeiDou (range 1)
+                        csv_entry_svinfo['sat[%i]' % idx] = "B{0}".format(sv.svId-158)
+                    elif 33 <= sv.svId <= 64:  # BeiDou (range 2)
+                        csv_entry_svinfo['sat[%i]' % idx] = "V{0}".format(sv.svId-27)
+                    elif 173 <= sv.svId <= 182:  # IMES
+                        csv_entry_svinfo['sat[%i]' % idx] = "I{0}".format(sv.svId-172)
+                    elif 193 <= sv.svId <= 202:  # QZSS
+                        csv_entry_svinfo['sat[%i]' % idx] = "Q{0}".format(sv.svId-192)
+                    elif 65 <= sv.svId <= 96:  # GLONASS
+                        csv_entry_svinfo['sat[%i]' % idx] = "R{0}".format(sv.svId-64)
+                    elif sv.svId == 255:
+                        csv_entry_svinfo['sat[%i]' % idx] = sv.svId
+                    else:
+                        logger.warning("CSV Output: Unknown svId in SVINFO message")
+
+            elif isinstance(msg.payload, UbxNavPvt):
+                csv_entry_pvt['iTOW'] = msg.payload.iTOW
+                csv_entry_pvt['fixType'] = msg.payload.fixType
+                csv_entry_pvt['lon'] = localize_float(msg.payload.lon)
+                csv_entry_pvt['lat'] = localize_float(msg.payload.lat)
+                csv_entry_pvt['height'] = localize_float(msg.payload.height)
+                csv_entry_pvt['hMSL'] = localize_float(msg.payload.hMSL)
+                csv_entry_pvt['hAcc'] = localize_float(msg.payload.hAcc)
+                csv_entry_pvt['vAcc'] = localize_float(msg.payload.vAcc)
+
+            else:
+                continue
+
+            # combine PVT and SVINFO messages with same timestamp
+            if 'iTOW' in csv_entry:  # csv_entry already contains some data
+                if csv_entry['iTOW'] == msg.payload.iTOW:  # merge and write
+                    if 'iTOW' in csv_entry_pvt:
+                        csv_entry.update(csv_entry_pvt)
+                    elif 'iTOW' in csv_entry_svinfo:
+                        csv_entry.update(csv_entry_svinfo)
+
+                    ubxwriter.writerow(csv_entry)
+                    csv_entry = dict()
+
+                else:  # not mergeable, write old data and continue
+                    ubxwriter.writerow(csv_entry)
+                    csv_entry = dict()
+
+                    if 'iTOW' in csv_entry_pvt:
+                        csv_entry = csv_entry_pvt
+                    elif 'iTOW' in csv_entry_svinfo:
+                        csv_entry = csv_entry_svinfo
+
+            else:  # just needed at initial state
+                if 'iTOW' in csv_entry_pvt:
+                    csv_entry = csv_entry_pvt
+                elif 'iTOW' in csv_entry_svinfo:
+                    csv_entry = csv_entry_svinfo
 
     # GET VEHICLE POSITION DATA AND CONVERT/ ANALYZE IT
     CSV_DELIMITER = ';'
     utm_data = ulog_data_list_search(data, 'transponder_report')
     globalpos_data = ulog_data_list_search(data, 'vehicle_global_position')
     gps_data = ulog_data_list_search(data, 'vehicle_gps_position')
+    satellite_data = ulog_data_list_search(data, 'satellite_info')
     # TODO: get position setpoint
 
     with open(position_out_filename, 'w') as csvfile:
@@ -440,7 +587,7 @@ if __name__ == "__main__":
         # utm:
         # globalos: timestamp;lat;lon;alt;alt_ellipsoid;delta_alt;eph;epv;terrain_alt;lat_lon_reset_counter;alt_reset_counter;terrain_alt_valid;dead_reckoning
         # gps: timestamp;time_utc_usec;lat;lon;alt;alt_ellipsoid;s_variance_m_s;c_variance_rad;eph;epv;hdop;vdop;noise_per_ms;jamming_indicator;vel_m_s;vel_n_m_s;vel_e_m_s;vel_d_m_s;cog_rad;timestamp_time_relative;heading;heading_offset;fix_type;vel_ned_valid;satellites_used
-        data = gps_data
+        data = satellite_data
 
         # use same field order as in the log, except for the timestamp
         data_keys = [f.field_name for f in data.field_data]

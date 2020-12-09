@@ -34,9 +34,23 @@ transponder_report 0 0
 
 
 ## ublox Protocol Reference
-UBX-NAV-SAT is needed to get the IDs of the connected satellites.
-But PX4 might be capable of publishing this information by default.
-The GPS driver as an option to enabled sat info, which will publish to `satellite_info` uORB and `GPS_STATUS` MAVLink topics.
+UBX-NAV-SAT is needed to get the IDs of the connected satellites, but PX4 does not enable this message by default.
+To enable detailed information on the received satellites, the GPS driver must be started with the `-s` flag.
+Then information on up to 20 satellites will be publish to uORB topic `satellite_info` and the `GPS_STATUS` MAVLink message.
+
+So add to `etc/extras.txt`:
+```
+gps stop
+gps start -b 115200 -s
+
+## Fallback: Enable NAV_SAT UBX message manually
+#echo -e '\xB5\x62\x06\x01\x08\x00\x01\x35\x00\x01\x00\x00\x00\x00\x46\x23'>/dev/ttyS3
+```
+
+And enable logging of the relevant uORB topics by appending to `etc/logging/logger_topics.txt`:
+```
+satellite_info 0
+```
 
 ### Satellite Numbering
 
