@@ -19,18 +19,11 @@ python3 analyze.py -i path/to/logfile_name.ulog
 
 Output will be written to:
 
-- logfile_name-TODO.dat
-- logfile_name.csv
+- logfile_name-from_device.dat: Raw binary UART data received from the ublox module
+- logfile_name-to_device.dat: Raw binary UART data sent to the ublox module
+- logfile_name-ubx.csv: Parsed ublox NAV-SVINFO messages
+- logfile_name.csv: Data from satellite_info uorb messages
 
-
-**Attention**: At the time of writing, PX4 does not write the dumped GPS communication to the log file by default (see https://github.com/PX4/PX4-Autopilot/issues/16229).
-The only workaround is, to use a config file for the logger in `etc/logging/logger_topics.txt` on the FMU's SD card.
-
-It has to contain all topics, which should be logged, including:
-```
-gps_dump 0 0
-transponder_report 0 0
-```
 
 
 ## ublox Protocol Reference
@@ -42,14 +35,6 @@ So add to `etc/extras.txt`:
 ```
 gps stop
 gps start -b 115200 -s
-
-## Fallback: Enable NAV_SAT UBX message manually
-#echo -e '\xB5\x62\x06\x01\x08\x00\x01\x35\x00\x01\x00\x00\x00\x00\x46\x23'>/dev/ttyS3
-```
-
-And enable logging of the relevant uORB topics by appending to `etc/logging/logger_topics.txt`:
-```
-satellite_info 0
 ```
 
 ### Satellite Numbering
