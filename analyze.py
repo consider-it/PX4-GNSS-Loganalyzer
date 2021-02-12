@@ -498,8 +498,8 @@ if __name__ == "__main__":
         csv_fields = ['iTOW', 'fixType', 'lon', 'lat', 'height', 'hMSL', 'hAcc', 'vAcc']
         csv_fields.append('numSvs')
         for n in range(30):
-            # csv_fields.append('svId[%i]' % n)
-            csv_fields.append('sat[%i]' % n)
+            csv_fields.append('svId[%i]' % n)
+            # csv_fields.append('sat[%i]' % n)
 
         ubxwriter = csv.DictWriter(csvfile, fieldnames=csv_fields, dialect=csv.excel, delimiter=';')
         ubxwriter.writeheader()
