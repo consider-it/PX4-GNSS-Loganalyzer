@@ -6,6 +6,7 @@ Extraction of GNSS UART communication and analysis of uBlox commands
 
 Author:    Jannik Beyerstedt <beyerstedt@consider-it.de>
 Copyright: (c) consider it GmbH, 2020
+License:   MIT
 """
 
 import argparse
